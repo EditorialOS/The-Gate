@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "euWgeOozqdgtmxOPb_XFE"
+uri = "file://THE-GATE.md"
+type = "text"
+title = "The Gate — Documentation"
