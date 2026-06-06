@@ -5,7 +5,9 @@
  * The Gate — AI editorial quality control API
  * OpenAPI spec version: 0.2.0
  */
+import type { ErrorResponse } from './errorResponse';
 
-export interface HealthStatus {
-  status: string;
-}
+/**
+ * Invalid admin secret
+ */
+export type ForbiddenResponse = ErrorResponse;

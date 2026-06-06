@@ -5,7 +5,6 @@
  * The Gate — AI editorial quality control API
  * OpenAPI spec version: 0.2.0
  */
+import type { CriterionResult } from './criterionResult';
 
-export interface HealthStatus {
-  status: string;
-}
+export type GateVerdictCriteriaResults = {[key: string]: CriterionResult};

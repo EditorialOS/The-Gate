@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.2.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface RateLimitInfo {
+  used: number;
+  limit: number;
+  reset_at: Date;
 }

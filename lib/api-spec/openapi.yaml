@@ -2,14 +2,21 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 0.2.0
+  description: The Gate — AI editorial quality control API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: gate
+    description: Gate evaluation — run the quality gate on any draft
+  - name: gate-keys
+    description: Gate API key management (admin-protected)
+  - name: gate-reviews
+    description: Gate review history
+
 paths:
   /healthz:
     get:
@@ -24,7 +31,207 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /gate:
+    post:
+      operationId: runGate
+      tags: [gate]
+      summary: Run the quality gate
+      description: |
+        Evaluates a draft against the configured gate criteria and returns a structured verdict.
+        Requires a valid Bearer API key.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GateRunBody"
+      responses:
+        "200":
+          description: Gate evaluation complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateVerdict"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/LLMError"
+
+  /gate/keys:
+    post:
+      operationId: createGateKey
+      tags: [gate-keys]
+      summary: Create an API key
+      description: Creates a new Gate API key. Requires the X-Admin-Secret header.
+      security:
+        - adminSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGateKeyBody"
+      responses:
+        "201":
+          description: Key created. The raw key is returned once — store it securely.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateGateKeyResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listGateKeys
+      tags: [gate-keys]
+      summary: List all API keys
+      description: Lists all Gate API keys (active and revoked). Requires the X-Admin-Secret header.
+      security:
+        - adminSecret: []
+      responses:
+        "200":
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GateKeyRecord"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /gate/keys/{prefix}:
+    delete:
+      operationId: revokeGateKey
+      tags: [gate-keys]
+      summary: Revoke an API key
+      description: Permanently revokes the key with the given prefix. Requires the X-Admin-Secret header.
+      security:
+        - adminSecret: []
+      parameters:
+        - in: path
+          name: prefix
+          required: true
+          schema:
+            type: string
+          description: The key prefix (from the prefix field when the key was created)
+      responses:
+        "200":
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeKeyResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /gate/reviews:
+    get:
+      operationId: listGateReviews
+      tags: [gate-reviews]
+      summary: List reviews for this API key
+      description: Returns paginated review history for the authenticated API key.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of results to return
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of results to skip
+        - in: query
+          name: verdict
+          schema:
+            $ref: "#/components/schemas/Verdict"
+          description: Filter by verdict
+      responses:
+        "200":
+          description: Paginated review list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateReviewList"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /gate/reviews/{id}:
+    get:
+      operationId: getGateReview
+      tags: [gate-reviews]
+      summary: Get a single review
+      description: Returns a single review by ID. Only accessible to the API key that created it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: The review UUID
+      responses:
+        "200":
+          description: Review record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateReviewRecord"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Gate API key (format: gate_sk_<prefix>_<secret>)"
+    adminSecret:
+      type: apiKey
+      in: header
+      name: X-Admin-Secret
+      description: Admin secret for key management operations
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +241,371 @@ components:
       required:
         - status
 
+    Verdict:
+      type: string
+      enum:
+        - APPROVED
+        - APPROVED_WITH_NOTES
+        - REVISE
+        - BLOCKED
+
+    GateMode:
+      type: string
+      enum:
+        - content
+        - strategy
+        - technical
+        - communication
+      default: content
+
+    CriterionResult:
+      type: object
+      properties:
+        pass:
+          type: boolean
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        assessment:
+          type: string
+        evidence:
+          type: string
+      required:
+        - pass
+        - score
+        - assessment
+        - evidence
+
+    GateRunBody:
+      type: object
+      properties:
+        draft:
+          type: string
+          minLength: 1
+          maxLength: 50000
+          description: The content to evaluate
+        brief:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          description: What was requested — the gate checks whether the output answers it
+        voice_guide:
+          type: string
+          maxLength: 10000
+          description: Brand voice guide. If omitted, voice compliance is scored as neutral.
+        mode:
+          $ref: "#/components/schemas/GateMode"
+      required:
+        - draft
+        - brief
+
+    GateVerdict:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique review ID for retrieval
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        weighted_score:
+          type: number
+          format: float
+          minimum: 1
+          maximum: 5
+        criteria_results:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/CriterionResult"
+        strengths:
+          type: array
+          items:
+            type: string
+        gaps:
+          type: array
+          items:
+            type: string
+        revision_instructions:
+          type: string
+          nullable: true
+        missing_context:
+          type: string
+          nullable: true
+        meta:
+          type: object
+          properties:
+            mode:
+              $ref: "#/components/schemas/GateMode"
+            draft_hash:
+              type: string
+            has_voice_guide:
+              type: boolean
+            rate_limit:
+              $ref: "#/components/schemas/RateLimitInfo"
+      required:
+        - id
+        - verdict
+        - confidence
+        - criteria_results
+        - strengths
+        - gaps
+
+    RateLimitInfo:
+      type: object
+      properties:
+        used:
+          type: integer
+        limit:
+          type: integer
+        reset_at:
+          type: string
+          format: date-time
+      required:
+        - used
+        - limit
+        - reset_at
+
+    CreateGateKeyBody:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Human-readable name for this key
+        rate_limit_per_hour:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: Maximum gate evaluations per hour for this key
+      required:
+        - name
+
+    CreateGateKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: Full API key — shown only once, store securely
+        prefix:
+          type: string
+          description: Key prefix used for identification and revocation
+        name:
+          type: string
+        rate_limit_per_hour:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+      required:
+        - id
+        - key
+        - prefix
+        - name
+        - rate_limit_per_hour
+        - created_at
+
+    GateKeyRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        prefix:
+          type: string
+        name:
+          type: string
+        rate_limit_per_hour:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum:
+            - active
+            - revoked
+      required:
+        - id
+        - prefix
+        - name
+        - rate_limit_per_hour
+        - created_at
+        - status
+
+    RevokeKeyResponse:
+      type: object
+      properties:
+        prefix:
+          type: string
+        status:
+          type: string
+          enum:
+            - revoked
+        revoked_at:
+          type: string
+          format: date-time
+      required:
+        - prefix
+        - status
+        - revoked_at
+
+    GateReviewRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        verdict:
+          $ref: "#/components/schemas/Verdict"
+        confidence:
+          type: number
+          format: float
+        weighted_score:
+          type: number
+          format: float
+          nullable: true
+        scorecard:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/CriterionResult"
+        strengths:
+          type: array
+          items:
+            type: string
+        gaps:
+          type: array
+          items:
+            type: string
+        revision_instructions:
+          type: string
+          nullable: true
+        missing_context:
+          type: string
+          nullable: true
+        draft_hash:
+          type: string
+        meta:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - verdict
+        - confidence
+        - scorecard
+        - strengths
+        - gaps
+        - draft_hash
+        - created_at
+
+    GateReviewList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/GateReviewRecord"
+        pagination:
+          type: object
+          properties:
+            limit:
+              type: integer
+            offset:
+              type: integer
+            count:
+              type: integer
+          required:
+            - limit
+            - offset
+            - count
+      required:
+        - data
+        - pagination
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+      required:
+        - error
+        - message
+
+  responses:
+    ValidationError:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Invalid admin secret
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict with current state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimitExceeded:
+      description: Rate limit exceeded for this API key
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorResponse"
+              - type: object
+                properties:
+                  rate_limit:
+                    $ref: "#/components/schemas/RateLimitInfo"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    LLMError:
+      description: LLM service error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
