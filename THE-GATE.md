@@ -393,3 +393,120 @@ The API server is configured as a Replit artifact (`artifacts/api-server`). The 
 2. Runs `pnpm run start` (`node --enable-source-maps ./dist/index.mjs`)
 
 No Docker, no containerization. The build output is a single bundled `.mjs` file with source maps.
+
+---
+
+### Self-hosting on a VPS
+
+The API code is plain Node.js/Express with no Replit-specific runtime dependencies. Everything that is currently Replit-managed has a direct self-hosted equivalent.
+
+#### What needs to change
+
+**1. Anthropic AI**
+
+Currently the client uses Replit's AI Integrations proxy via two auto-set env vars:
+```
+AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+AI_INTEGRATIONS_ANTHROPIC_API_KEY
+```
+
+On a VPS, update `lib/integrations-anthropic-ai/src/client.ts` to use a standard Anthropic client with your own API key:
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+
+export const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+```
+
+Then set `ANTHROPIC_API_KEY` in your environment. The LLM call in `routes/gate/run.ts` does not change.
+
+**2. PostgreSQL**
+
+Replit provides managed Postgres and sets `DATABASE_URL` automatically. On a VPS, point `DATABASE_URL` at any Postgres instance (self-hosted, Supabase, Railway, Neon, etc.):
+
+```
+DATABASE_URL=postgres://user:password@host:5432/dbname
+```
+
+Run the schema migration once against the new database:
+```bash
+pnpm --filter @workspace/db run push
+```
+
+**3. Environment variables**
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | Your Postgres connection string |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key (replaces the two Replit AI Integration vars) |
+| `GATE_ADMIN_SECRET` | Keep the existing value or generate a new one |
+| `PORT` | Whatever port you want the server to bind to (default 8080) |
+
+#### Build and run
+
+```bash
+# In the project root — build the bundle
+pnpm --filter @workspace/api-server run build
+
+# Output: artifacts/api-server/dist/index.mjs
+# Copy that file to your server, then:
+node --enable-source-maps ./dist/index.mjs
+```
+
+Node 18+ is required. No other runtime dependencies — everything is bundled by esbuild into the single `.mjs` file.
+
+You can also run it with a process manager:
+```bash
+# pm2
+pm2 start dist/index.mjs --name gate-api
+
+# systemd — create /etc/systemd/system/gate-api.service
+# then: systemctl enable --now gate-api
+```
+
+Put Nginx or Caddy in front of it to handle TLS.
+
+---
+
+### If you cancel your Replit subscription
+
+The code is yours — it lives in your Repl and you can download it at any time as a zip from the Replit UI (three-dot menu → Download as zip). The code itself has no dependency on staying on Replit.
+
+The two things you would lose that need action **before** cancelling:
+
+**1. Your review history (database)**
+
+Replit deletes the managed Postgres database when a subscription ends. Export your data first:
+
+```bash
+# Dump the Gate tables
+pg_dump "$DATABASE_URL" \
+  --table=gate_api_keys \
+  --table=gate_reviews \
+  --format=custom \
+  --file=gate-backup.dump
+
+# Restore to a new database
+pg_restore --dbname="$NEW_DATABASE_URL" gate-backup.dump
+```
+
+Or use a SQL export:
+```bash
+pg_dump "$DATABASE_URL" \
+  --table=gate_api_keys \
+  --table=gate_reviews \
+  > gate-export.sql
+```
+
+**2. The Anthropic AI proxy**
+
+Replit's AI Integrations proxy stops working the moment your subscription ends. Make the client swap described in the self-hosting section above and get your own Anthropic API key before you leave. The model (`claude-sonnet-4-6`) and all prompt logic stay the same.
+
+**What you keep regardless:**
+- All source code
+- The OpenAPI spec
+- The prompt architecture
+- The database schema (you can recreate it anywhere with `db push`)
+- This documentation
