@@ -6,3 +6,9 @@ id = "euWgeOozqdgtmxOPb_XFE"
 uri = "file://THE-GATE.md"
 type = "text"
 title = "The Gate — Documentation (updated)"
+
+[[outputs]]
+id = "xu9LPUrJE7eeqwzEdbnl8"
+uri = "file://DEPLOY-VPS.md"
+type = "text"
+title = "VPS Deployment Handoff for SAI"
