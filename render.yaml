@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: the-gate
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm --filter @workspace/api-server run build
+    startCommand: node --enable-source-maps artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GATE_ADMIN_SECRET
+        value: gate_admin_e231881d8503e4ea65aa3bc356ab1d78d1d626e8355a1667
