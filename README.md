@@ -1,5 +1,7 @@
 # The Gate
 
+> **Deployment layer:** [The-Gate-VPS](https://github.com/EditorialOS/The-Gate-VPS) runs this engine in production as a multi-tenant MCP server, exposing evaluation as agent-callable tools.
+
   **Docs:** [PRD](PRD.md) · [Changelog](CHANGELOG.md)
 
   An editorial quality gate API. Submit a draft and a brief; receive a machine-readable verdict with a scored rubric, evidence quotes, and specific revision instructions. Fixed eight-criterion evaluation — the model cannot freestyle.
