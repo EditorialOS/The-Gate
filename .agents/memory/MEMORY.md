@@ -1,1 +1,0 @@
-- [Gate API build gotchas](gate-api-gotchas.md) — two bugs found during build: YAML angle-bracket parse error + key split count off-by-one
